@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Samtala - Bokningsapp</title>
+    <!-- Tailwind CSS för styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Babel för att översätta React-koden -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        // Ladda in React och Firebase direkt från nätet
+        import React, { useState, useEffect } from 'https://esm.sh/react@18.3.1';
+        import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client';
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+        import { Calendar, Clock, Share2, User, Check, Users, ArrowRight, Copy, AlertCircle, Link as LinkIcon, Home, Download, Printer, FileText, CheckCircle, Mail, Send, XCircle, Trash2 } from 'https://esm.sh/lucide-react@0.378.0?deps=react@18.3.1,react-dom@18.3.1';
+
+        // ==========================================
+        // 🛑 KLISTRA IN DINA FIREBASE-NYCKLAR HÄR UNDER:
+        // ==========================================
+        const firebaseConfig = {
+  apiKey: "AIzaSyATLBTPZ1y-tnnxjWRR_Vby_RwNjHH_Zss",
+  authDomain: "samtala-39dfe.firebaseapp.com",
+  projectId: "samtala-39dfe",
+  storageBucket: "samtala-39dfe.firebasestorage.app",
+  messagingSenderId: "1080986537108",
+  appId: "1:1080986537108:web:f646fe56672becf021b881"
+};
+        // ==========================================
+
+        // Starta Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = 'samtala-app';
+
+        // --- HJÄLPFUNKTION FÖR ICS (KALENDER) ---
+        const generateICS = (eventTitle, timeString, format, host) => {
+          try {
+            const parts = timeString.split(' kl ');
+            if (parts.length !== 2) return;
+            
+            const dateStr = parts[0].replace(/-/g, '');
+            const timeParts = parts[1].split(' - '); 
+            const startT = timeParts[0].replace(':', '') + '00';
+            const endT = timeParts[1].replace(':', '') + '00';
+
+            const icsContent = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Samtala App//SV\nBEGIN:VEVENT\nSUMMARY:${eventTitle} med ${host}\nDTSTART;TZID=Europe/Stockholm:${dateStr}T${startT}\nDTEND;TZID=Europe/Stockholm:${dateStr}T${endT}\nLOCATION:${format}\nDESCRIPTION:Bokat samtal/möte via Samtala.\nEND:VEVENT\nEND:VCALENDAR`;
+            
+            const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'Samtala_Bokning.ics');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } catch (error) {
+            console.error("Kunde inte generera kalenderfil", error);
+          }
+        };
+
+        function App() {
+          const [user, setUser] = useState(null);
+          const [events, setEvents] = useState([]);
+          const [slots, setSlots] = useState([]);
+          const [sharedSelections, setSharedSelections] = useState([]);
+          const [teacherProfile, setTeacherProfile] = useState(null);
+          const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+          const [currentHash, setCurrentHash] = useState(window.location.hash || '#/');
+
+          useEffect(() => {
+            const handleHashChange = () => setCurrentHash(window.location.hash || '#/');
+            window.addEventListener('hashchange', handleHashChange);
+            return () => window.removeEventListener('hashchange', handleHashChange);
+          }, []);
+
+          let currentView = 'host';
+          let routeParams = {};
+
+          if (currentHash.startsWith('#/b/')) {
+            currentView = 'event_public';
+            routeParams.eventId = currentHash.replace('#/b/', '');
+          } else if (currentHash.startsWith('#/share/')) {
+            currentView = 'shared_selection';
+            routeParams.sharedId = currentHash.replace('#/share/', '');
+          } else if (currentHash.startsWith('#/event/')) {
+            currentView = 'host_event';
+            routeParams.eventId = currentHash.replace('#/event/', '');
+          } else if (currentHash.startsWith('#/manage/')) {
+            currentView = 'manage_booking';
+            routeParams.slotId = currentHash.replace('#/manage/', '');
+          } else {
+            currentView = 'host_dashboard';
+          }
+
+          useEffect(() => {
+            const initAuth = async () => {
+              try {
+                await signInAnonymously(auth);
+              } catch (error) {
+                console.error("Auth error:", error);
+              }
+            };
+            initAuth();
+            const unsubscribe = onAuthStateChanged(auth, setUser);
+            return () => unsubscribe();
+          }, []);
+
+          useEffect(() => {
+            if (!user) return;
+            const profileRef = doc(db, 'artifacts', appId, 'public', 'data', 'samtala_profiles', user.uid);
+            const unsubProfile = onSnapshot(profileRef, (docSnap) => {
+              if (docSnap.exists()) setTeacherProfile(docSnap.data());
+              else setTeacherProfile(null);
+              setIsLoadingProfile(false);
+            }, console.error);
+
+            const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'samtala_events');
+            const unsubEvents = onSnapshot(eventsRef, snapshot => setEvents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), console.error);
+
+            const slotsRef = collection(db, 'artifacts', appId, 'public', 'data', 'samtala_slots');
+            const unsubSlots = onSnapshot(slotsRef, snapshot => setSlots(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), console.error);
+
+            const sharedRef = collection(db, 'artifacts', appId, 'public', 'data', 'samtala_shared');
+            const unsubShared = onSnapshot(sharedRef, snapshot => setSharedSelections(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))), console.error);
+
+            return () => { unsubProfile(); unsubEvents(); unsubSlots(); unsubShared(); };
+          }, [user]);
+
+          const copyToClipboard = (text, successMsg) => {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+              document.execCommand('copy');
+              alert(successMsg || 'Länk kopierad!');
+            } catch (err) {
+              console.error('Kunde inte kopiera', err);
+            }
+            document.body.removeChild(textArea);
+          };
+
+          if (!user || isLoadingProfile) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><p className="text-gray-500 animate-pulse">Laddar Samtala...</p></div>;
+
+          return (
+            <div className="min-h-screen bg-gray-50 font-sans text-gray-800">
+              <main className="max-w-4xl mx-auto p-4 md:p-8 mt-4">
+                {(() => {
+                  if (currentView.startsWith('host') && !teacherProfile) return <TeacherOnboarding user={user} db={db} appId={appId} />;
+
+                  switch (currentView) {
+                    case 'host_dashboard':
+                      return <HostDashboard events={events} slots={slots} db={db} appId={appId} user={user} profile={teacherProfile} />;
+                    case 'host_event':
+                      const activeEvent = events.find(e => e.id === routeParams.eventId);
+                      if (!activeEvent) return <div>Hittade inte händelsen.</div>;
+                      return <HostEventDetails event={activeEvent} slots={slots.filter(s => s.eventId === routeParams.eventId).sort((a, b) => a.time.localeCompare(b.time))} db={db} appId={appId} copyHelper={copyToClipboard} />;
+                    case 'event_public':
+                      const publicEvent = events.find(e => e.id === routeParams.eventId);
+                      if (!publicEvent) return <div className="text-center p-10"><h2 className="text-2xl font-bold">Ogiltig länk.</h2></div>;
+                      return <EventPublicView event={publicEvent} slots={slots.filter(s => s.eventId === routeParams.eventId)} db={db} appId={appId} copyHelper={copyToClipboard} />;
+                    case 'shared_selection':
+                      const sharedData = sharedSelections.find(s => s.id === routeParams.sharedId);
+                      if (!sharedData) return <div className="text-center p-10"><h2 className="text-2xl font-bold">Ogiltig länk.</h2></div>;
+                      return <SharedSelectionView sharedData={sharedData} event={events.find(e => e.id === sharedData.eventId)} allSlots={slots} db={db} appId={appId} />;
+                    case 'manage_booking':
+                      const slotToManage = slots.find(s => s.id === routeParams.slotId);
+                      return <ManageBookingView slot={slotToManage} event={slotToManage ? events.find(e => e.id === slotToManage.eventId) : null} db={db} appId={appId} />;
+                    default:
+                      return <div>Okänd rutt</div>;
+                  }
+                })()}
+              </main>
+            </div>
+          );
+        }
+
+        // ==========================================
+        // BOKNINGSKVITTO
+        // ==========================================
+        function BookingReceipt({ receipt, copyHelper }) {
+          const manageUrl = `${window.location.origin}${window.location.pathname}#/manage/${receipt.slotId}`;
+
+          return (
+            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-lg mx-auto text-center border border-green-100">
+              <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle size={40} />
+              </div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">Bokning bekräftad!</h2>
+              <p className="text-gray-600 mb-6">Tiden är nu reserverad för {receipt.childName}.</p>
+              
+              {receipt.parentEmail && (
+                <div className="bg-indigo-50 border border-indigo-100 text-indigo-800 p-4 rounded-xl flex items-start gap-3 text-left mb-6">
+                  <Mail className="mt-0.5 flex-shrink-0" size={20} />
+                  <div>
+                    <p className="font-semibold text-sm">Bekräftelse skickad</p>
+                    <p className="text-sm opacity-90">Vi har skickat ett kvitto och en kalenderinbjudan till <strong>{receipt.parentEmail}</strong>.</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-gray-50 rounded-xl p-6 text-left border border-gray-100 mb-6 space-y-4">
+                <div><p className="text-sm text-gray-500 font-medium">Händelse</p><p className="font-semibold text-gray-900">{receipt.eventTitle}</p></div>
+                <div><p className="text-sm text-gray-500 font-medium">Tid</p><p className="font-semibold text-gray-900">{receipt.timeString}</p></div>
+                <div><p className="text-sm text-gray-500 font-medium">Plats/Format</p><p className="font-semibold text-gray-900">{receipt.meetingFormat}</p></div>
+                <div><p className="text-sm text-gray-500 font-medium">Med</p><p className="font-semibold text-gray-900">{receipt.hostName}</p></div>
+              </div>
+
+              <button 
+                onClick={() => generateICS(receipt.eventTitle, receipt.timeString, receipt.meetingFormat, receipt.hostName)}
+                className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition shadow-md mb-6"
+              >
+                <Download size={20} /> Ladda ner till kalender
+              </button>
+
+              <div className="border-t border-gray-200 pt-6">
+                <p className="text-sm text-gray-500 mb-2">Behöver du ändra tiden senare?</p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button onClick={() => copyHelper(manageUrl, "Avbokningslänk kopierad!")} className="flex-1 flex items-center justify-center gap-2 bg-gray-100 text-gray-700 py-2 px-4 rounded-lg text-sm font-medium hover:bg-gray-200 transition">
+                    <Copy size={16} /> Kopiera hanteringslänk
+                  </button>
+                  <button onClick={() => window.location.hash = `#/manage/${receipt.slotId}`} className="flex-1 flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-lg text-sm font-medium hover:bg-gray-50 transition">
+                     Hantera bokning
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // ==========================================
+        // HANTERA BOKNING (AVBOKA) FÖR FÖRÄLDER
+        // ==========================================
+        function ManageBookingView({ slot, event, db, appId }) {
+          const [isCancelled, setIsCancelled] = useState(false);
+
+          if (!slot || !event) return <div className="text-center p-12"><p className="text-gray-500">Laddar bokning...</p></div>;
+          
+          if (slot.status !== 'booked' && !isCancelled) {
+            return (
+              <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md mx-auto text-center border border-gray-100">
+                <AlertCircle size={48} className="mx-auto text-gray-400 mb-4" />
+                <h2 className="text-2xl font-bold mb-2">Tiden är inte bokad</h2>
+                <p className="text-gray-600 mb-6">Denna tid är antingen redan avbokad eller så är länken ogiltig.</p>
+                <button onClick={() => window.location.hash = `#/b/${event.id}`} className="bg-indigo-600 text-white px-6 py-2 rounded-lg">Gå till bokningssidan</button>
+              </div>
+            );
+          }
+
+          const handleCancelBooking = async () => {
+            if(window.confirm("Är du säker på att du vill avboka denna tid?")) {
+              try {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', slot.id), {
+                  status: 'available', 
+                  bookerName: '', 
+                  childName: '', 
+                  parentEmail: '', 
+                  meetingFormat: ''
+                });
+                setIsCancelled(true);
+              } catch (err) {
+                console.error("Kunde inte avboka", err);
+                alert("Ett fel uppstod vid avbokning.");
+              }
+            }
+          };
+
+          if (isCancelled) {
+            return (
+              <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md mx-auto text-center border border-green-100">
+                <CheckCircle size={48} className="mx-auto text-green-500 mb-4" />
+                <h2 className="text-2xl font-bold mb-2">Avbokning bekräftad</h2>
+                <p className="text-gray-600 mb-6">Din tid för <strong>{event.title}</strong> är nu avbokad. Vi har informerat läraren.</p>
+                <button onClick={() => window.location.hash = `#/b/${event.id}`} className="bg-indigo-600 text-white px-6 py-2 rounded-lg">Boka en ny tid</button>
+              </div>
+            );
+          }
+
+          return (
+            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md mx-auto border border-gray-200">
+              <h2 className="text-2xl font-bold mb-6 text-center">Hantera din bokning</h2>
+              
+              <div className="bg-gray-50 rounded-xl p-5 mb-8 space-y-3 border border-gray-100">
+                <div><p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Möte</p><p className="font-medium">{event.title}</p></div>
+                <div><p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Tid</p><p className="font-medium">{slot.time}</p></div>
+                <div><p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Barn</p><p className="font-medium">{slot.childName}</p></div>
+                <div><p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Bokat av</p><p className="font-medium">{slot.bookerName} ({slot.parentEmail})</p></div>
+              </div>
+
+              <div className="space-y-4">
+                <button onClick={handleCancelBooking} className="w-full flex items-center justify-center gap-2 bg-red-50 text-red-600 border border-red-200 py-3 rounded-lg font-bold hover:bg-red-100 transition">
+                  <XCircle size={20} /> Avboka denna tid
+                </button>
+                <p className="text-xs text-center text-gray-500">När du avbokar blir tiden omedelbart tillgänglig för andra föräldrar.</p>
+              </div>
+            </div>
+          );
+        }
+
+        // ==========================================
+        // VÄRD-VY: ONBOARDING & DASHBOARD
+        // ==========================================
+        function TeacherOnboarding({ user, db, appId }) {
+          const [name, setName] = useState('');
+          const [school, setSchool] = useState('');
+          const handleSaveProfile = async () => {
+            if (!name.trim()) return;
+            try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_profiles', user.uid), { name: name.trim(), school: school.trim(), createdAt: serverTimestamp() }); } 
+            catch (error) { console.error(error); }
+          };
+          return (
+            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md mx-auto text-center border border-indigo-100">
+              <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4"><User size={32} /></div>
+              <h1 className="text-2xl font-bold mb-2">Välkommen till Samtala!</h1>
+              <p className="text-gray-600 mb-8">Skapa din lärarprofil för att börja lägga upp tider.</p>
+              <div className="space-y-4 text-left">
+                <div><label className="block text-sm font-medium mb-1">Ditt namn</label><input type="text" className="w-full p-3 border rounded-lg" value={name} onChange={(e) => setName(e.target.value)} /></div>
+                <div><label className="block text-sm font-medium mb-1">Skola (Frivilligt)</label><input type="text" className="w-full p-3 border rounded-lg" value={school} onChange={(e) => setSchool(e.target.value)} /></div>
+                <button onClick={handleSaveProfile} disabled={!name.trim()} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold mt-4 disabled:opacity-50">Spara profil</button>
+              </div>
+            </div>
+          );
+        }
+
+        function HostDashboard({ events, slots, db, appId, user, profile }) {
+          const [isCreating, setIsCreating] = useState(false);
+          const [newEventTitle, setNewEventTitle] = useState('');
+          const myEvents = events.filter(e => e.hostId === user.uid);
+
+          const handleCreateEvent = async () => {
+            if (!newEventTitle.trim()) return;
+            try {
+              const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'samtala_events'), { title: newEventTitle, createdAt: serverTimestamp(), hostId: user.uid, hostName: profile.name, hostSchool: profile.school || '' });
+              setIsCreating(false); setNewEventTitle(''); window.location.hash = `#/event/${docRef.id}`;
+            } catch (error) { console.error(error); }
+          };
+
+          return (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold">{profile.name.charAt(0).toUpperCase()}</div>
+                  <div><p className="text-sm text-gray-500 m-0">Inloggad som</p><p className="font-bold text-gray-900 m-0">{profile.name} {profile.school && <span className="text-sm font-normal text-gray-500">({profile.school})</span>}</p></div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between mt-8">
+                <h1 className="text-2xl font-bold tracking-tight text-gray-900">Mina Händelser</h1>
+                {!isCreating && <button onClick={() => setIsCreating(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center gap-2"><Calendar size={18} /> Skapa ny</button>}
+              </div>
+
+              {isCreating && (
+                <div className="bg-white p-6 rounded-xl shadow-sm border mb-6">
+                  <h2 className="text-xl font-semibold mb-4">Skapa nytt möte</h2>
+                  <input type="text" placeholder="T.ex. Utvecklingssamtal VT-2024" className="w-full p-3 border rounded-lg mb-4" value={newEventTitle} onChange={(e) => setNewEventTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateEvent()} />
+                  <div className="flex gap-3"><button onClick={handleCreateEvent} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium">Spara</button><button onClick={() => setIsCreating(false)} className="bg-gray-100 px-6 py-2 rounded-lg font-medium">Avbryt</button></div>
+                </div>
+              )}
+
+              {!isCreating && (
+                <div className="grid gap-4">
+                  {myEvents.length === 0 ? (
+                     <div className="text-center p-12 bg-white rounded-xl border border-dashed text-gray-500">Inga händelser skapade.</div>
+                  ) : (
+                    myEvents.map(event => {
+                      const eventSlots = slots.filter(s => s.eventId === event.id);
+                      const bookedCount = eventSlots.filter(s => s.status === 'booked').length;
+                      return (
+                        <div key={event.id} onClick={() => window.location.hash = `#/event/${event.id}`} className="bg-white p-5 rounded-xl border cursor-pointer hover:border-indigo-400 hover:shadow-md transition group">
+                          <div className="flex justify-between items-center">
+                            <div><h3 className="text-lg font-semibold text-gray-900 group-hover:text-indigo-600">{event.title}</h3><p className="text-sm text-gray-500 mt-1">{eventSlots.length} tider • {bookedCount} bokade</p></div>
+                            <ArrowRight className="text-gray-400 group-hover:text-indigo-500" />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // ==========================================
+        // VÄRD-VY: HÄNDELSEDETALJER 
+        // ==========================================
+        function HostEventDetails({ event, slots, db, appId, copyHelper }) {
+          const [activeTab, setActiveTab] = useState('list'); 
+          const [date, setDate] = useState('');
+          const [startHour, setStartHour] = useState('08');
+          const [startMinute, setStartMinute] = useState('00');
+          const [endHour, setEndHour] = useState('12');
+          const [endMinute, setEndMinute] = useState('00');
+          const [duration, setDuration] = useState(20);
+          const [pause, setPause] = useState(5);
+          const [feedbackMsg, setFeedbackMsg] = useState('');
+          
+          const [simulatedEmailSent, setSimulatedEmailSent] = useState(null);
+          const [toastMessage, setToastMessage] = useState('');
+
+          const publicUrl = `${window.location.origin}${window.location.pathname}#/b/${event.id}`;
+          const bookedSlots = slots.filter(s => s.status === 'booked');
+
+          const showToast = (email, message) => {
+            setSimulatedEmailSent(email);
+            setToastMessage(message);
+            setTimeout(() => { setSimulatedEmailSent(null); setToastMessage(''); }, 4000);
+          };
+
+          const handleGenerateSlots = async () => {
+            if (!date) return setFeedbackMsg('Välj ett datum.');
+            const currentMin = (parseInt(startHour) * 60) + parseInt(startMinute);
+            const endTotalMin = (parseInt(endHour) * 60) + parseInt(endMinute);
+            const dur = parseInt(duration);
+            const brk = parseInt(pause || 0);
+
+            if (currentMin >= endTotalMin) return setFeedbackMsg('Ogiltig tid.');
+
+            const slotsToAdd = [];
+            let tempMin = currentMin;
+
+            while (tempMin + dur <= endTotalMin) {
+              const h = Math.floor(tempMin / 60).toString().padStart(2, '0');
+              const m = (tempMin % 60).toString().padStart(2, '0');
+              const slotEndMin = tempMin + dur;
+              const endHStr = Math.floor(slotEndMin / 60).toString().padStart(2, '0');
+              const endMStr = (slotEndMin % 60).toString().padStart(2, '0');
+              
+              slotsToAdd.push({ eventId: event.id, time: `${date} kl ${h}:${m} - ${endHStr}:${endMStr}`, status: 'available', bookerName: '', parentEmail: '' });
+              tempMin += dur + brk;
+            }
+
+            try {
+              const slotsRef = collection(db, 'artifacts', appId, 'public', 'data', 'samtala_slots');
+              for (const slot of slotsToAdd) await addDoc(slotsRef, slot);
+              setFeedbackMsg(`Succé! Skapade ${slotsToAdd.length} tider.`);
+            } catch (error) { setFeedbackMsg('Ett fel uppstod.'); }
+            setTimeout(() => setFeedbackMsg(''), 4000);
+          };
+
+          const handleTeacherCancel = async (slot) => {
+            if(window.confirm(`Vill du verkligen avboka tiden för ${slot.childName}?\nTiden blir ledig igen och ett mail skickas till föräldern.`)) {
+              try {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', slot.id), {
+                  status: 'available', bookerName: '', childName: '', parentEmail: '', meetingFormat: ''
+                });
+                if(slot.parentEmail) {
+                   showToast(slot.parentEmail, "Avbokningsbekräftelse skickad till");
+                } else {
+                   showToast("Ingen e-post fanns", "Tiden avbokades lokalt. ");
+                }
+              } catch (err) { alert("Något gick fel. Försök igen."); }
+            }
+          };
+
+          return (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
+              {simulatedEmailSent && (
+                <div className="absolute top-4 right-4 bg-indigo-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50">
+                  <CheckCircle size={18} className="text-green-400" />
+                  <span className="font-medium text-sm">{toastMessage} {simulatedEmailSent}!</span>
+                </div>
+              )}
+
+              <div className="p-6 border-b border-gray-100 bg-gray-50/50 print:hidden">
+                <button onClick={() => window.location.hash = '#/'} className="text-sm text-indigo-600 font-medium hover:underline mb-4 inline-flex items-center gap-1">&larr; Tillbaka</button>
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                  <div><h2 className="text-2xl font-bold text-gray-900">{event.title}</h2><p className="text-sm text-gray-500 mt-1">{slots.length} totala tider • {bookedSlots.length} inbokade</p></div>
+                  <button onClick={() => copyHelper(publicUrl)} className="flex items-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg hover:bg-indigo-200 font-medium text-sm">
+                    <Copy size={16} /> Kopiera inbjudningslänk
+                  </button>
+                </div>
+
+                <div className="flex gap-4 mt-8 border-b border-gray-200">
+                  <button onClick={() => setActiveTab('list')} className={`pb-3 font-medium text-sm transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'list' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    Deltagarlista <span className="bg-indigo-100 text-indigo-700 py-0.5 px-2 rounded-full text-xs">{bookedSlots.length}</span>
+                  </button>
+                  <button onClick={() => setActiveTab('manage')} className={`pb-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'manage' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    Hantera Tider
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6">
+                {activeTab === 'list' && (
+                  <div>
+                    <div className="flex justify-between items-center mb-6 print:hidden">
+                      <h3 className="text-lg font-semibold text-gray-900">Bokade tider</h3>
+                      <button onClick={() => window.print()} className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition shadow-sm font-medium text-sm"><Printer size={16} /> Skriv ut</button>
+                    </div>
+
+                    {bookedSlots.length === 0 ? (
+                      <p className="text-gray-500 text-center py-12 border border-dashed rounded-xl bg-gray-50 print:hidden">Inga tider är bokade ännu.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-gray-100 text-gray-700">
+                              <th className="p-3 font-semibold rounded-tl-lg">Tid</th>
+                              <th className="p-3 font-semibold">Barn</th>
+                              <th className="p-3 font-semibold">Bokat av</th>
+                              <th className="p-3 font-semibold hidden md:table-cell">E-post</th>
+                              <th className="p-3 font-semibold rounded-tr-lg text-right">Åtgärder</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bookedSlots.map((slot, index) => (
+                              <tr key={slot.id} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                <td className="p-3 font-medium text-gray-900 whitespace-nowrap">{slot.time}</td>
+                                <td className="p-3 text-gray-800">{slot.childName}</td>
+                                <td className="p-3 text-gray-600">{slot.bookerName}</td>
+                                <td className="p-3 text-gray-500 text-sm hidden md:table-cell">{slot.parentEmail || '-'}</td>
+                                <td className="p-3 print:hidden flex justify-end gap-2">
+                                  <button onClick={() => slot.parentEmail ? showToast(slot.parentEmail, "Påminnelse skickad till") : alert("Ingen e-post")} disabled={!slot.parentEmail} className={`p-1.5 rounded-md transition ${slot.parentEmail ? 'text-indigo-600 hover:bg-indigo-100' : 'text-gray-300'}`}><Send size={18} /></button>
+                                  <button onClick={() => handleTeacherCancel(slot)} className="p-1.5 rounded-md text-red-500 hover:bg-red-50"><Trash2 size={18} /></button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'manage' && (
+                  <div className="print:hidden">
+                    <div className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 mb-8">
+                      <h3 className="text-lg font-semibold text-indigo-900 mb-4 flex items-center gap-2"><Calendar size={18} /> Generera tidsluckor</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+                        <div className="col-span-2 md:col-span-1"><label className="block text-sm font-medium mb-1">Datum</label><input type="date" className="w-full p-2 border rounded-lg" value={date} onChange={e => setDate(e.target.value)} /></div>
+                        <div><label className="block text-sm font-medium mb-1">Starttid</label><div className="flex items-center gap-1"><input type="number" className="w-full p-2 border rounded-lg" value={startHour} onChange={e=>setStartHour(e.target.value)} min="0" max="23"/><span>:</span><input type="number" className="w-full p-2 border rounded-lg" value={startMinute} onChange={e=>setStartMinute(e.target.value)} min="0" max="59"/></div></div>
+                        <div><label className="block text-sm font-medium mb-1">Sluttid</label><div className="flex items-center gap-1"><input type="number" className="w-full p-2 border rounded-lg" value={endHour} onChange={e=>setEndHour(e.target.value)} min="0" max="23"/><span>:</span><input type="number" className="w-full p-2 border rounded-lg" value={endMinute} onChange={e=>setEndMinute(e.target.value)} min="0" max="59"/></div></div>
+                        <div><label className="block text-sm font-medium mb-1">Längd (min)</label><input type="number" className="w-full p-2 border rounded-lg" value={duration} onChange={e => setDuration(e.target.value)} /></div>
+                        <div><label className="block text-sm font-medium mb-1">Rast (min)</label><input type="number" className="w-full p-2 border rounded-lg" value={pause} onChange={e => setPause(e.target.value)} /></div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <button onClick={handleGenerateSlots} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700">Skapa tider</button>
+                        {feedbackMsg && <span className="text-sm font-medium text-indigo-600">{feedbackMsg}</span>}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {slots.map(slot => (
+                        <div key={slot.id} className="flex justify-between items-center p-3 border rounded-lg hover:bg-gray-50">
+                          <div className="flex items-center gap-3">
+                            <Clock size={18} className="text-gray-400" /> <span className="font-medium text-gray-800">{slot.time}</span>
+                            {slot.status === 'booked' && <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">Bokad av {slot.childName}</span>}
+                          </div>
+                          <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', slot.id))} className="text-red-500 text-sm hover:underline">Radera slot</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        // ==========================================
+        // DELTAGAR-VY: BOKA TID
+        // ==========================================
+        function EventPublicView({ event, slots, db, appId, copyHelper }) {
+          const [selectedSlots, setSelectedSlots] = useState([]);
+          const [bookerName, setBookerName] = useState('');
+          const [childName, setChildName] = useState('');
+          const [parentEmail, setParentEmail] = useState(''); 
+          const [meetingFormat, setMeetingFormat] = useState('Fysiskt på plats');
+          const [isBookingMode, setIsBookingMode] = useState(false);
+          const [isSharingMode, setIsSharingMode] = useState(false);
+          const [justSharedLink, setJustSharedLink] = useState(null);
+          const [receiptData, setReceiptData] = useState(null); 
+
+          const availableSlots = slots.filter(s => s.status === 'available').sort((a, b) => a.time.localeCompare(b.time));
+
+          const groupedSlots = availableSlots.reduce((acc, slot) => {
+            const [datePart, timePart] = slot.time.split(' kl ');
+            if (!acc[datePart]) acc[datePart] = [];
+            acc[datePart].push({ ...slot, displayTime: timePart || slot.time });
+            return acc;
+          }, {});
+
+          const validateEmail = (email) => email.includes('@') && email.includes('.');
+
+          const handleDirectBook = async () => {
+            if (!bookerName.trim() || !childName.trim() || !parentEmail.trim() || selectedSlots.length !== 1) return alert("Fyll i alla fält.");
+            if (!validateEmail(parentEmail)) return alert("Vänligen ange en giltig e-postadress.");
+            
+            try {
+              const slotRef = doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', selectedSlots[0]);
+              await updateDoc(slotRef, { status: 'booked', bookerName, childName, meetingFormat, parentEmail }); 
+              
+              const slotData = availableSlots.find(s => s.id === selectedSlots[0]);
+              setReceiptData({ eventTitle: event.title, hostName: event.hostName, timeString: slotData.time, childName, meetingFormat, parentEmail, slotId: slotData.id });
+            } catch (err) { console.error(err); }
+          };
+
+          const handleCreateShareLink = async () => {
+            if (!bookerName.trim() || !childName.trim() || !parentEmail.trim() || selectedSlots.length < 2) return alert("Fyll i alla fält.");
+            if (!validateEmail(parentEmail)) return alert("Vänligen ange en giltig e-postadress.");
+            try {
+              const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'samtala_shared'), {
+                eventId: event.id, slotIds: selectedSlots, initiatorName: bookerName, childName, meetingFormat, parentEmail, status: 'pending' 
+              });
+              selectedSlots.forEach(async (id) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', id), { status: 'soft_locked' }));
+              const shareUrl = `${window.location.origin}${window.location.pathname}#/share/${docRef.id}`;
+              setJustSharedLink(shareUrl);
+              copyHelper(shareUrl, "Länken är skapad! Skicka till din partner.");
+            } catch (err) { console.error(err); }
+          };
+
+          if (receiptData) return <BookingReceipt receipt={receiptData} copyHelper={copyHelper} />;
+
+          if (justSharedLink) {
+            return (
+              <div className="bg-white rounded-2xl shadow-xl p-8 text-center max-w-lg mx-auto border border-blue-100">
+                <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4"><Share2 size={32} /></div>
+                <h2 className="text-2xl font-bold mb-2">Länken är redo!</h2>
+                <p className="text-gray-600 mb-6">Skicka denna länk till din partner så att de kan göra det slutgiltiga valet.</p>
+                <div className="bg-gray-100 p-3 rounded-lg flex items-center justify-between gap-2 mb-6">
+                  <span className="truncate text-sm font-mono text-gray-600">{justSharedLink}</span>
+                  <button onClick={() => copyHelper(justSharedLink)} className="bg-white border p-2 rounded"><Copy size={16} /></button>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="bg-white rounded-2xl shadow-xl overflow-hidden max-w-lg mx-auto">
+              <div className="bg-indigo-600 p-8 text-center text-white">
+                <h1 className="text-3xl font-bold mb-2">{event.title}</h1>
+                <p className="text-indigo-200 mb-5">Med {event.hostName}</p>
+                <div className="bg-white/10 px-4 py-2 rounded-lg inline-block"><p className="text-white text-sm font-medium">Välj en tid nedan</p></div>
+              </div>
+
+              <div className="p-6 md:p-8">
+                {availableSlots.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">Inga lediga tider kvar.</div>
+                ) : (
+                  <div className="space-y-6">
+                    {Object.entries(groupedSlots).map(([date, dateSlots]) => (
+                      <div key={date} className="bg-gray-50 p-5 rounded-xl border">
+                        <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2 text-lg"><Calendar size={20} className="text-indigo-500" />{date}</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {dateSlots.map(slot => (
+                            <label key={slot.id} className={`flex items-center p-4 border rounded-xl cursor-pointer transition-all ${selectedSlots.includes(slot.id) ? 'border-indigo-600 bg-indigo-100 shadow-md ring-1 ring-indigo-600' : 'bg-white hover:border-indigo-300'}`}>
+                              <input type="checkbox" className="w-5 h-5 text-indigo-600 rounded mr-3" checked={selectedSlots.includes(slot.id)} onChange={() => setSelectedSlots(prev => prev.includes(slot.id) ? prev.filter(id => id !== slot.id) : [...prev, slot.id])} />
+                              <span className="text-base font-medium">{slot.displayTime}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedSlots.length > 0 && (
+                  <div className="mt-8">
+                    {selectedSlots.length === 1 && !isSharingMode && (
+                      <div className="bg-gray-50 p-5 rounded-xl border">
+                        {!isBookingMode ? (
+                          <button onClick={() => setIsBookingMode(true)} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold text-lg hover:bg-indigo-700">Gå vidare och boka</button>
+                        ) : (
+                          <div className="space-y-4">
+                            <div><p className="font-medium text-gray-700 mb-1">Ditt namn</p><input type="text" className="w-full p-3 border rounded-lg" value={bookerName} onChange={e => setBookerName(e.target.value)} /></div>
+                            <div><p className="font-medium text-gray-700 mb-1">Din e-post</p><input type="email" placeholder="namn@exempel.se" className="w-full p-3 border rounded-lg" value={parentEmail} onChange={e => setParentEmail(e.target.value)} /></div>
+                            <div><p className="font-medium text-gray-700 mb-1">Barnets namn</p><input type="text" className="w-full p-3 border rounded-lg" value={childName} onChange={e => setChildName(e.target.value)} /></div>
+                            <div><p className="font-medium text-gray-700 mb-1">Format</p><select className="w-full p-3 border rounded-lg" value={meetingFormat} onChange={e => setMeetingFormat(e.target.value)}><option>Fysiskt på plats</option><option>Digitalt (Länk)</option></select></div>
+                            <div className="flex gap-2 mt-2"><button onClick={handleDirectBook} className="flex-1 bg-green-600 text-white py-3 rounded-lg font-bold">Bekräfta Bokning</button><button onClick={() => setIsBookingMode(false)} className="px-4 bg-gray-200 rounded-lg">Avbryt</button></div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {selectedSlots.length > 1 && !isBookingMode && (
+                      <div className="bg-blue-50 p-5 rounded-xl border border-blue-100">
+                        {!isSharingMode ? (
+                          <div>
+                            <p className="text-sm text-blue-800 mb-3 font-medium flex items-center gap-2"><Users size={16}/> {selectedSlots.length} tider valda.</p>
+                            <button onClick={() => setIsSharingMode(true)} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold text-lg hover:bg-blue-700">Skapa länk för partner</button>
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div><p className="font-medium text-blue-900 mb-1">Ditt namn</p><input type="text" className="w-full p-3 border rounded-lg" value={bookerName} onChange={e => setBookerName(e.target.value)} /></div>
+                            <div><p className="font-medium text-blue-900 mb-1">Din e-post</p><input type="email" className="w-full p-3 border rounded-lg" value={parentEmail} onChange={e => setParentEmail(e.target.value)} /></div>
+                            <div><p className="font-medium text-blue-900 mb-1">Barnets namn</p><input type="text" className="w-full p-3 border rounded-lg" value={childName} onChange={e => setChildName(e.target.value)} /></div>
+                            <div><p className="font-medium text-blue-900 mb-1">Format</p><select className="w-full p-3 border rounded-lg" value={meetingFormat} onChange={e => setMeetingFormat(e.target.value)}><option>Fysiskt på plats</option><option>Digitalt (Länk)</option></select></div>
+                            <div className="flex gap-2 mt-2"><button onClick={handleCreateShareLink} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold">Generera Länk</button><button onClick={() => setIsSharingMode(false)} className="px-4 bg-blue-200 rounded-lg">Avbryt</button></div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        // ==========================================
+        // ANDRAHANDS-VY: (DELAD LÄNK FÖR PARTNER)
+        // ==========================================
+        function SharedSelectionView({ sharedData, event, allSlots, db, appId }) {
+          const [partnerName, setPartnerName] = useState('');
+          const [receiptData, setReceiptData] = useState(null);
+          
+          if (!sharedData || !event) return <div className="text-center p-8">Laddar urval...</div>;
+          const suggestedSlots = allSlots.filter(s => sharedData.slotIds.includes(s.id));
+
+          const handleFinalBook = async (slotId) => {
+            if (!partnerName.trim()) return alert("Fyll i ditt namn.");
+            try {
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', slotId), {
+                status: 'booked', bookerName: `${sharedData.initiatorName} & ${partnerName}`, childName: sharedData.childName, meetingFormat: sharedData.meetingFormat, parentEmail: sharedData.parentEmail
+              });
+              sharedData.slotIds.filter(id => id !== slotId).forEach(async (id) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', id), { status: 'available' }));
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_shared', sharedData.id), { status: 'resolved' });
+
+              const slotData = allSlots.find(s => s.id === slotId);
+              setReceiptData({ eventTitle: event.title, hostName: event.hostName, timeString: slotData.time, childName: sharedData.childName, meetingFormat: sharedData.meetingFormat, parentEmail: sharedData.parentEmail, slotId: slotId });
+            } catch (err) { console.error(err); }
+          };
+
+          if (receiptData) return <BookingReceipt receipt={receiptData} copyHelper={(txt) => {
+            const ta = document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); alert("Kopierad!");
+          }} />;
+
+          if (sharedData.status === 'resolved') return <div className="text-center bg-white p-12 rounded-2xl shadow-xl max-w-md mx-auto"><div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4"><Check size={32} /></div><h2 className="text-2xl font-bold mb-2">Redan bokad!</h2></div>;
+
+          return (
+            <div className="bg-white rounded-2xl shadow-xl overflow-hidden max-w-lg mx-auto border border-blue-100">
+              <div className="bg-blue-50 p-6 text-center">
+                <h2 className="text-xl font-bold mb-1">Dags att välja!</h2>
+                <p className="text-gray-700"><strong>{sharedData.initiatorName}</strong> har föreslagit tider för <strong>{event.title}</strong>. Vilken passar dig bäst?</p>
+              </div>
+              <div className="p-6 md:p-8">
+                <div className="mb-6"><label className="block text-sm font-medium mb-2">Ditt namn</label><input type="text" className="w-full p-3 border rounded-lg" value={partnerName} onChange={e => setPartnerName(e.target.value)} /></div>
+                <div className="space-y-3">
+                  {suggestedSlots.map(slot => (
+                    <button key={slot.id} onClick={() => handleFinalBook(slot.id)} className="w-full flex justify-between p-4 border rounded-xl hover:bg-blue-600 hover:text-white transition group text-left">
+                      <span className="text-lg font-medium">{slot.time}</span>
+                      <span className="text-sm font-semibold opacity-0 group-hover:opacity-100 transition whitespace-nowrap ml-4">Välj &rarr;</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // Tvinga webbläsaren att måla upp appen!
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
