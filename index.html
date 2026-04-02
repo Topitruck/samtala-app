@@ -17,28 +17,38 @@
         import React, { useState, useEffect } from 'https://esm.sh/react@18.3.1';
         import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client';
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
-        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
         import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
-        import { Calendar, Clock, Share2, User, Check, Users, ArrowRight, Copy, AlertCircle, Link as LinkIcon, Home, Download, Printer, FileText, CheckCircle, Mail, Send, XCircle, Trash2 } from 'https://esm.sh/lucide-react@0.378.0?deps=react@18.3.1,react-dom@18.3.1';
+        // UPPDATERING: Video och MapPin-ikoner tillagda
+        import { Calendar, Clock, Share2, User, Check, Users, ArrowRight, Copy, AlertCircle, Link as LinkIcon, Home, Download, Printer, FileText, CheckCircle, Mail, Send, XCircle, Trash2, Video, MapPin } from 'https://esm.sh/lucide-react@0.378.0?deps=react@18.3.1,react-dom@18.3.1';
 
         // ==========================================
-        // 🛑 KLISTRA IN DINA FIREBASE-NYCKLAR HÄR UNDER:
+        // 🛑 DINA FIREBASE-NYCKLAR (Orörda från din fil)
         // ==========================================
-        const firebaseConfig = {
-  apiKey: "AIzaSyATLBTPZ1y-tnnxjWRR_Vby_RwNjHH_Zss",
-  authDomain: "samtala-39dfe.firebaseapp.com",
-  projectId: "samtala-39dfe",
-  storageBucket: "samtala-39dfe.firebasestorage.app",
-  messagingSenderId: "1080986537108",
-  appId: "1:1080986537108:web:f646fe56672becf021b881"
-};
+        const userFirebaseConfig = {
+          apiKey: "AIzaSyATLBTPZ1y-tnnxjWRR_Vby_RwNjHH_Zss",
+          authDomain: "samtala-39dfe.firebaseapp.com",
+          projectId: "samtala-39dfe",
+          storageBucket: "samtala-39dfe.firebasestorage.app",
+          messagingSenderId: "1080986537108",
+          appId: "1:1080986537108:web:f646fe56672becf021b881"
+        };
         // ==========================================
 
         // Starta Firebase
-        const app = initializeApp(firebaseConfig);
+        let activeConfig = userFirebaseConfig;
+        if (typeof __firebase_config !== 'undefined') {
+          try {
+            activeConfig = JSON.parse(__firebase_config);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
+        const app = initializeApp(activeConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = 'samtala-app';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'samtala-app';
 
         // --- HJÄLPFUNKTION FÖR ICS (KALENDER) ---
         const generateICS = (eventTitle, timeString, format, host) => {
@@ -103,7 +113,11 @@
           useEffect(() => {
             const initAuth = async () => {
               try {
-                await signInAnonymously(auth);
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                  await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                  await signInAnonymously(auth);
+                }
               } catch (error) {
                 console.error("Auth error:", error);
               }
@@ -508,6 +522,8 @@
                               <th className="p-3 font-semibold">Barn</th>
                               <th className="p-3 font-semibold">Bokat av</th>
                               <th className="p-3 font-semibold hidden md:table-cell">E-post</th>
+                              {/* UPPDATERING: Format-kolumn tillagd */}
+                              <th className="p-3 font-semibold text-center">Format</th>
                               <th className="p-3 font-semibold rounded-tr-lg text-right">Åtgärder</th>
                             </tr>
                           </thead>
@@ -518,6 +534,20 @@
                                 <td className="p-3 text-gray-800">{slot.childName}</td>
                                 <td className="p-3 text-gray-600">{slot.bookerName}</td>
                                 <td className="p-3 text-gray-500 text-sm hidden md:table-cell">{slot.parentEmail || '-'}</td>
+                                {/* UPPDATERING: Visar vald mötesform */}
+                                <td className="p-3 text-center">
+                                  {slot.meetingFormat === 'Digitalt (Länk)' ? (
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
+                                      <Video size={12} /> Digitalt
+                                    </span>
+                                  ) : slot.meetingFormat === 'Fysiskt på plats' ? (
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">
+                                      <MapPin size={12} /> På plats
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400 text-xs font-medium">Ej valt</span>
+                                  )}
+                                </td>
                                 <td className="p-3 print:hidden flex justify-end gap-2">
                                   <button onClick={() => slot.parentEmail ? showToast(slot.parentEmail, "Påminnelse skickad till") : alert("Ingen e-post")} disabled={!slot.parentEmail} className={`p-1.5 rounded-md transition ${slot.parentEmail ? 'text-indigo-600 hover:bg-indigo-100' : 'text-gray-300'}`}><Send size={18} /></button>
                                   <button onClick={() => handleTeacherCancel(slot)} className="p-1.5 rounded-md text-red-500 hover:bg-red-50"><Trash2 size={18} /></button>
@@ -574,7 +604,8 @@
           const [bookerName, setBookerName] = useState('');
           const [childName, setChildName] = useState('');
           const [parentEmail, setParentEmail] = useState(''); 
-          const [meetingFormat, setMeetingFormat] = useState('Fysiskt på plats');
+          // UPPDATERING: State ändrat till tom sträng för att tvinga fram ett aktivt val
+          const [meetingFormat, setMeetingFormat] = useState(''); 
           const [isBookingMode, setIsBookingMode] = useState(false);
           const [isSharingMode, setIsSharingMode] = useState(false);
           const [justSharedLink, setJustSharedLink] = useState(null);
@@ -592,7 +623,8 @@
           const validateEmail = (email) => email.includes('@') && email.includes('.');
 
           const handleDirectBook = async () => {
-            if (!bookerName.trim() || !childName.trim() || !parentEmail.trim() || selectedSlots.length !== 1) return alert("Fyll i alla fält.");
+            // UPPDATERING: Krav på att mötesform (!meetingFormat) måste vara valt
+            if (!bookerName.trim() || !childName.trim() || !parentEmail.trim() || selectedSlots.length !== 1 || !meetingFormat) return alert("Fyll i alla fält och välj mötesform (Digitalt / På plats).");
             if (!validateEmail(parentEmail)) return alert("Vänligen ange en giltig e-postadress.");
             
             try {
@@ -605,7 +637,8 @@
           };
 
           const handleCreateShareLink = async () => {
-            if (!bookerName.trim() || !childName.trim() || !parentEmail.trim() || selectedSlots.length < 2) return alert("Fyll i alla fält.");
+            // UPPDATERING: Krav på att mötesform (!meetingFormat) måste vara valt
+            if (!bookerName.trim() || !childName.trim() || !parentEmail.trim() || selectedSlots.length < 2 || !meetingFormat) return alert("Fyll i alla fält och välj mötesform (Digitalt / På plats).");
             if (!validateEmail(parentEmail)) return alert("Vänligen ange en giltig e-postadress.");
             try {
               const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'samtala_shared'), {
@@ -674,8 +707,21 @@
                             <div><p className="font-medium text-gray-700 mb-1">Ditt namn</p><input type="text" className="w-full p-3 border rounded-lg" value={bookerName} onChange={e => setBookerName(e.target.value)} /></div>
                             <div><p className="font-medium text-gray-700 mb-1">Din e-post</p><input type="email" placeholder="namn@exempel.se" className="w-full p-3 border rounded-lg" value={parentEmail} onChange={e => setParentEmail(e.target.value)} /></div>
                             <div><p className="font-medium text-gray-700 mb-1">Barnets namn</p><input type="text" className="w-full p-3 border rounded-lg" value={childName} onChange={e => setChildName(e.target.value)} /></div>
-                            <div><p className="font-medium text-gray-700 mb-1">Format</p><select className="w-full p-3 border rounded-lg" value={meetingFormat} onChange={e => setMeetingFormat(e.target.value)}><option>Fysiskt på plats</option><option>Digitalt (Länk)</option></select></div>
-                            <div className="flex gap-2 mt-2"><button onClick={handleDirectBook} className="flex-1 bg-green-600 text-white py-3 rounded-lg font-bold">Bekräfta Bokning</button><button onClick={() => setIsBookingMode(false)} className="px-4 bg-gray-200 rounded-lg">Avbryt</button></div>
+                            
+                            {/* UPPDATERING: Nya snygga knappar för formatet för ENKEL bokning */}
+                            <div>
+                              <p className="font-medium text-gray-700 mb-2 mt-4">Önskad mötesform</p>
+                              <div className="grid grid-cols-2 gap-3">
+                                <button type="button" onClick={() => setMeetingFormat('Digitalt (Länk)')} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${meetingFormat === 'Digitalt (Länk)' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                                  <Video size={20} /> <span className="text-sm font-bold">Digitalt</span>
+                                </button>
+                                <button type="button" onClick={() => setMeetingFormat('Fysiskt på plats')} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${meetingFormat === 'Fysiskt på plats' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                                  <MapPin size={20} /> <span className="text-sm font-bold">På plats</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-2 mt-4"><button onClick={handleDirectBook} className="flex-1 bg-green-600 text-white py-3 rounded-lg font-bold">Bekräfta Bokning</button><button onClick={() => setIsBookingMode(false)} className="px-4 bg-gray-200 rounded-lg">Avbryt</button></div>
                           </div>
                         )}
                       </div>
@@ -692,8 +738,21 @@
                             <div><p className="font-medium text-blue-900 mb-1">Ditt namn</p><input type="text" className="w-full p-3 border rounded-lg" value={bookerName} onChange={e => setBookerName(e.target.value)} /></div>
                             <div><p className="font-medium text-blue-900 mb-1">Din e-post</p><input type="email" className="w-full p-3 border rounded-lg" value={parentEmail} onChange={e => setParentEmail(e.target.value)} /></div>
                             <div><p className="font-medium text-blue-900 mb-1">Barnets namn</p><input type="text" className="w-full p-3 border rounded-lg" value={childName} onChange={e => setChildName(e.target.value)} /></div>
-                            <div><p className="font-medium text-blue-900 mb-1">Format</p><select className="w-full p-3 border rounded-lg" value={meetingFormat} onChange={e => setMeetingFormat(e.target.value)}><option>Fysiskt på plats</option><option>Digitalt (Länk)</option></select></div>
-                            <div className="flex gap-2 mt-2"><button onClick={handleCreateShareLink} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold">Generera Länk</button><button onClick={() => setIsSharingMode(false)} className="px-4 bg-blue-200 rounded-lg">Avbryt</button></div>
+                            
+                            {/* UPPDATERING: Nya snygga knappar för formatet för DELAD bokning */}
+                            <div>
+                              <p className="font-medium text-blue-900 mb-2 mt-4">Önskad mötesform</p>
+                              <div className="grid grid-cols-2 gap-3">
+                                <button type="button" onClick={() => setMeetingFormat('Digitalt (Länk)')} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${meetingFormat === 'Digitalt (Länk)' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-blue-200 text-blue-600/60 hover:border-blue-300'}`}>
+                                  <Video size={20} /> <span className="text-sm font-bold">Digitalt</span>
+                                </button>
+                                <button type="button" onClick={() => setMeetingFormat('Fysiskt på plats')} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${meetingFormat === 'Fysiskt på plats' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-blue-200 text-blue-600/60 hover:border-blue-300'}`}>
+                                  <MapPin size={20} /> <span className="text-sm font-bold">På plats</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-2 mt-4"><button onClick={handleCreateShareLink} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold">Generera Länk</button><button onClick={() => setIsSharingMode(false)} className="px-4 bg-blue-200 rounded-lg">Avbryt</button></div>
                           </div>
                         )}
                       </div>
