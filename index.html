@@ -392,6 +392,7 @@
               const provider = new GoogleAuthProvider();
               await linkWithPopup(user, provider);
               alert("Snyggt! Ditt konto är nu säkrat och kopplat till din e-post.");
+              window.location.reload(); // Denna rad tvingar webbläsaren att ladda om, vilket tar bort gula varningen
             } catch (error) {
               console.error(error);
               if (error.code === 'auth/credential-already-in-use') {
