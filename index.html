@@ -881,6 +881,14 @@
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               {dateSlots.map(slot => (
                                 <label key={slot.id} className={`relative flex items-center justify-between p-4 border-2 rounded-2xl cursor-pointer transition-all duration-200 ${selectedSlots.includes(slot.id) ? 'border-indigo-600 bg-indigo-50 shadow-md ring-4 ring-indigo-50' : 'border-slate-200 bg-white hover:border-indigo-300 hover:shadow-sm'}`}>
+                                  {/* HÄR ÄR FIXEN: Den osynliga checkboxen som känner av klicket */}
+                                  <input 
+                                    type="checkbox" 
+                                    className="hidden" 
+                                    checked={selectedSlots.includes(slot.id)} 
+                                    onChange={() => setSelectedSlots(prev => prev.includes(slot.id) ? prev.filter(id => id !== slot.id) : [...prev, slot.id])} 
+                                  />
+                                  {/* -------------------------------------------------------- */}
                                   <div className="flex items-center gap-3">
                                     <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${selectedSlots.includes(slot.id) ? 'border-indigo-600 bg-indigo-600' : 'border-slate-300'}`}>
                                       {selectedSlots.includes(slot.id) && <Check size={12} className="text-white" strokeWidth={3} />}
