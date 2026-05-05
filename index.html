@@ -13,6 +13,16 @@
     <!-- Babel för att översätta React-koden -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+    <!-- EmailJS för e-postutskick -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    <script type="text/javascript">
+       (function(){
+          emailjs.init({
+            publicKey: "1xC_x5pFEiGnNFx5R",
+          });
+       })();
+    </script>
+
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -795,6 +805,25 @@
               await updateDoc(slotRef, { status: 'booked', bookerName, childName, meetingFormat, parentEmail }); 
               
               const slotData = availableSlots.find(s => s.id === selectedSlots[0]);
+              
+              // --- EMAILJS: Skicka bekräftelsemejl ---
+              const manageUrl = `${window.location.origin}${window.location.pathname}#/manage/${slotData.id}`;
+              try {
+                await emailjs.send('service_gqyfr4m', 'template_kaa8pof', {
+                  parent_email: parentEmail,
+                  event_title: event.title,
+                  child_name: childName,
+                  time_string: slotData.time,
+                  meeting_format: meetingFormat,
+                  host_name: event.hostName,
+                  manage_link: manageUrl
+                });
+                console.log("Bekräftelsemejl skickat!");
+              } catch (emailError) {
+                console.error("Kunde inte skicka mejl:", emailError);
+              }
+              // ----------------------------------------
+
               setReceiptData({ eventTitle: event.title, hostName: event.hostName, timeString: slotData.time, childName, meetingFormat, parentEmail, slotId: slotData.id });
             } catch (err) { console.error(err); }
           };
@@ -970,6 +999,25 @@
               await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_shared', sharedData.id), { status: 'resolved' });
 
               const slotData = allSlots.find(s => s.id === slotId);
+              
+              // --- EMAILJS: Skicka bekräftelsemejl ---
+              const manageUrl = `${window.location.origin}${window.location.pathname}#/manage/${slotId}`;
+              try {
+                await emailjs.send('service_gqyfr4m', 'template_kaa8pof', {
+                  parent_email: sharedData.parentEmail,
+                  event_title: event.title,
+                  child_name: sharedData.childName,
+                  time_string: slotData.time,
+                  meeting_format: sharedData.meetingFormat,
+                  host_name: event.hostName,
+                  manage_link: manageUrl
+                });
+                console.log("Bekräftelsemejl skickat!");
+              } catch (emailError) {
+                console.error("Kunde inte skicka mejl:", emailError);
+              }
+              // ----------------------------------------
+
               setReceiptData({ eventTitle: event.title, hostName: event.hostName, timeString: slotData.time, childName: sharedData.childName, meetingFormat: sharedData.meetingFormat, parentEmail: sharedData.parentEmail, slotId: slotId });
             } catch (err) { console.error(err); }
           };
