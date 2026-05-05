@@ -357,6 +357,24 @@
                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', slot.id), {
                   status: 'available', bookerName: '', childName: '', parentEmail: '', meetingFormat: ''
                 });
+
+                // --- EMAILJS: Skicka avbokningsmejl ---
+                if(slot.parentEmail) {
+                  try {
+                    await emailjs.send('service_gqyfr4m', 'template_i21aoc7', {
+                      parent_email: slot.parentEmail,
+                      event_title: event.title,
+                      child_name: slot.childName,
+                      time_string: slot.time,
+                      host_name: event.hostName
+                    });
+                    console.log("Avbokningsmejl skickat!");
+                  } catch (emailError) {
+                    console.error("Kunde inte skicka avbokningsmejl:", emailError);
+                  }
+                }
+                // ----------------------------------------
+
                 setIsCancelled(true);
               } catch (err) { console.error("Kunde inte avboka", err); alert("Ett fel uppstod vid avbokning."); }
             }
@@ -636,8 +654,26 @@
                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', slot.id), {
                   status: 'available', bookerName: '', childName: '', parentEmail: '', meetingFormat: ''
                 });
-                if(slot.parentEmail) triggerToast(`Avbokningsbekräftelse skickad till ${slot.parentEmail}`);
-                else triggerToast("Tiden avbokades lokalt (ingen e-post).");
+                
+                // --- EMAILJS: Skicka avbokningsmejl ---
+                if(slot.parentEmail) {
+                  try {
+                    await emailjs.send('service_gqyfr4m', 'template_i21aoc7', {
+                      parent_email: slot.parentEmail,
+                      event_title: event.title,
+                      child_name: slot.childName,
+                      time_string: slot.time,
+                      host_name: event.hostName
+                    });
+                    triggerToast(`Avbokningsbekräftelse skickad till ${slot.parentEmail}`);
+                  } catch (emailError) {
+                    console.error("Kunde inte skicka avbokningsmejl:", emailError);
+                    triggerToast("Tiden avbokades lokalt, men e-post kunde inte skickas.", "error");
+                  }
+                } else {
+                  triggerToast("Tiden avbokades lokalt (ingen e-post).");
+                }
+                // ----------------------------------------
               } catch (err) { triggerToast("Något gick fel. Försök igen.", "error"); }
             }
           };
