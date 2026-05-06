@@ -60,7 +60,7 @@
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         .dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
-        /* Optimerad Utskrift (Punkt 4) */
+        /* Optimerad Utskrift */
         @media print {
             body { 
                 background-color: white !important; 
@@ -75,7 +75,6 @@
             td { border-bottom: 1px solid #ccc !important; padding: 12px 8px !important; color: black !important; }
             tr { page-break-inside: avoid !important; }
             
-            /* Dölj onödiga element vid utskrift */
             nav, .search-container, button { display: none !important; }
         }
     </style>
@@ -90,7 +89,7 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, linkWithPopup } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
         import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
-        import { Calendar, Clock, Share2, User, Check, Users, ArrowRight, Copy, AlertCircle, Link as LinkIcon, Home, Download, Printer, FileText, CheckCircle, Mail, Send, XCircle, Trash2, Video, MapPin, LogOut, ChevronLeft, Plus, BarChart3, ChevronRight, Moon, Sun, Search } from 'https://esm.sh/lucide-react@0.378.0?deps=react@18.3.1,react-dom@18.3.1';
+        import { Calendar, Clock, Share2, User, Check, Users, ArrowRight, Copy, AlertCircle, Link as LinkIcon, Home, Download, Printer, FileText, CheckCircle, Mail, Send, XCircle, Trash2, Video, MapPin, LogOut, ChevronLeft, Plus, BarChart3, ChevronRight, Moon, Sun, Search, Edit2, Save, MessageSquare } from 'https://esm.sh/lucide-react@0.378.0?deps=react@18.3.1,react-dom@18.3.1';
 
         // ==========================================
         // 🛑 DINA FIREBASE-NYCKLAR
@@ -115,7 +114,7 @@
         const db = getFirestore(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'samtala-app';
 
-        // --- HJÄLPFUNKTION FÖR ICS (KALENDER) ---
+        // --- HJÄLPFUNKTION: KALENDERFIL ---
         const generateICS = (eventTitle, timeString, format, host) => {
           try {
             const parts = timeString.split(' kl ');
@@ -138,6 +137,22 @@
           } catch (error) { console.error("Kunde inte generera kalenderfil", error); }
         };
 
+        // --- HJÄLPFUNKTION: KONTROLLERA OM TID PASSERAT (Punkt 1) ---
+        const isTimePast = (timeString) => {
+          if(!timeString) return false;
+          try {
+            // Förväntat format: "2026-04-08 kl 08:30 - 08:55"
+            const parts = timeString.split(' kl ');
+            if(parts.length !== 2) return false;
+            const datePart = parts[0];
+            const startTimePart = parts[1].split(' - ')[0]; // "08:30"
+            const slotDate = new Date(`${datePart}T${startTimePart}:00`);
+            
+            if(isNaN(slotDate.getTime())) return false;
+            return slotDate < new Date(); // Returnerar true om slotDate är i det förflutna
+          } catch (e) { return false; }
+        };
+
         function App() {
           const [user, setUser] = useState(null);
           const [events, setEvents] = useState([]);
@@ -147,17 +162,12 @@
           const [isLoadingProfile, setIsLoadingProfile] = useState(true);
           const [currentHash, setCurrentHash] = useState(window.location.hash || '#/');
           
-          // Dark Mode State (Punkt 1)
           const [isDarkMode, setIsDarkMode] = useState(false);
           const [toast, setToast] = useState(null);
 
-          // Hantera Mörkt Läge
           useEffect(() => {
-            if (isDarkMode) {
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
-            }
+            if (isDarkMode) document.documentElement.classList.add('dark');
+            else document.documentElement.classList.remove('dark');
           }, [isDarkMode]);
 
           useEffect(() => {
@@ -221,7 +231,7 @@
             textArea.select();
             try {
               document.execCommand('copy');
-              showToast(successMsg || 'Länk kopierad!');
+              showToast(successMsg || 'Kopierat!');
             } catch (err) { console.error('Kunde inte kopiera', err); }
             document.body.removeChild(textArea);
           };
@@ -518,7 +528,7 @@
           const [newEventTitle, setNewEventTitle] = useState('');
           const myEvents = events.filter(e => e.hostId === user.uid);
           
-          // Beräkna statistik (inkluderar nu både bokade och avklarade)
+          // Beräkna statistik
           const mySlots = slots.filter(s => myEvents.some(e => e.id === s.eventId));
           const totalBooked = mySlots.filter(s => s.status === 'booked' || s.status === 'completed').length;
           const totalAvailable = mySlots.filter(s => s.status === 'available').length;
@@ -545,7 +555,6 @@
 
           return (
             <div className="space-y-8 fade-in">
-              {/* VARNINGSBANDEROLL GÄST */}
               {user.isAnonymous && (
                 <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/50 p-5 rounded-2xl shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
                   <div className="flex items-start gap-3">
@@ -573,7 +582,7 @@
                 )}
               </div>
 
-              {/* STATISTIKKORT (3-kolumns grid) */}
+              {/* STATISTIKKORT */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center gap-5 transition-colors duration-300">
                   <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3.5 rounded-xl"><Calendar className="text-indigo-600 dark:text-indigo-400" size={24} /></div>
@@ -612,7 +621,6 @@
                   ) : (
                     myEvents.map(event => {
                       const eventSlots = slots.filter(s => s.eventId === event.id);
-                      // Inkluderar avklarade i progressbaren så den inte går bakåt
                       const bookedCount = eventSlots.filter(s => s.status === 'booked' || s.status === 'completed').length;
                       const totalCount = eventSlots.length;
                       const percent = totalCount === 0 ? 0 : Math.round((bookedCount / totalCount) * 100);
@@ -650,7 +658,13 @@
         // ==========================================
         function HostEventDetails({ event, slots, db, appId, copyHelper, triggerToast }) {
           const [activeTab, setActiveTab] = useState('list'); 
-          const [searchQuery, setSearchQuery] = useState(''); // Punkt 3: Sök/Filter State
+          const [searchQuery, setSearchQuery] = useState('');
+          const [showTemplateModal, setShowTemplateModal] = useState(false); // Modal för e-postmallar (Punkt 2)
+          
+          // Edit State (Punkt 3)
+          const [editingSlotId, setEditingSlotId] = useState(null);
+          const [editData, setEditData] = useState({});
+
           const [date, setDate] = useState('');
           const [startHour, setStartHour] = useState('08');
           const [startMinute, setStartMinute] = useState('00');
@@ -664,20 +678,53 @@
           // Filtrerar ut aktiva bokningar till listan
           const bookedSlots = slots.filter(s => s.status === 'booked');
           
-          // Punkt 3: Sök/Filter logik
+          // Sök/Filter logik
           const filteredBookedSlots = bookedSlots.filter(slot => 
             (slot.childName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
             (slot.bookerName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
             (slot.parentEmail || '').toLowerCase().includes(searchQuery.toLowerCase())
           );
 
-          // Punkt 2: Kopiera E-postadresser funktion
+          // E-postmallar Funktion (Punkt 2)
+          const handleCopyTemplate = (terminText) => {
+            const templateText = `Hej alla vårdnadshavare!\n\nNu är det dags för utvecklingssamtal för ${terminText}.\nJag har satt upp ett digitalt bokningssystem för att göra det så smidigt som möjligt för er.\n\nKlicka på länken nedan, välj en tid som passar och fyll i om ni vill ses digitalt eller på plats på skolan.\n\nBoka er tid här: ${publicUrl}\n\nVänliga hälsningar,\n${event.hostName}`;
+            copyHelper(templateText, `E-postmall för ${terminText} kopierad!`);
+            setShowTemplateModal(false);
+          };
+
           const handleCopyAllEmails = () => {
             const emails = [...new Set(bookedSlots.map(s => s.parentEmail).filter(e => e && e.trim() !== ''))].join(', ');
             if (emails) {
               copyHelper(emails, `Kopierade ${emails.split(',').length} st e-postadresser!`);
             } else {
               triggerToast('Inga e-postadresser hittades för dessa tider.', 'error');
+            }
+          };
+
+          // Redigera Funktioner (Punkt 3)
+          const startEditing = (slot) => {
+            setEditingSlotId(slot.id);
+            setEditData({
+              childName: slot.childName || '',
+              bookerName: slot.bookerName || '',
+              parentEmail: slot.parentEmail || '',
+              meetingFormat: slot.meetingFormat || ''
+            });
+          };
+
+          const saveEditing = async (slotId) => {
+            try {
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', slotId), {
+                childName: editData.childName,
+                bookerName: editData.bookerName,
+                parentEmail: editData.parentEmail,
+                meetingFormat: editData.meetingFormat
+              });
+              setEditingSlotId(null);
+              triggerToast('Bokningen har uppdaterats!');
+            } catch (err) {
+              console.error(err);
+              triggerToast('Kunde inte spara ändringarna.', 'error');
             }
           };
 
@@ -759,9 +806,14 @@
                     <h2 className="text-3xl font-bold tracking-tight text-slate-800 dark:text-slate-100">{event.title}</h2>
                     <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-2">{slots.length} totala tider • {bookedSlots.length} kommande samtal</p>
                   </div>
-                  <button onClick={() => copyHelper(publicUrl, "Offentlig inbjudningslänk kopierad!")} className="flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-indigo-700 dark:text-indigo-300 px-5 py-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 font-bold text-sm shadow-sm transition-all whitespace-nowrap">
-                    <Copy size={16} /> Kopiera inbjudningslänk
-                  </button>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button onClick={() => setShowTemplateModal(true)} className="flex items-center justify-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-5 py-3 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/50 font-bold text-sm shadow-sm transition-all whitespace-nowrap">
+                      <MessageSquare size={16} /> E-postmall
+                    </button>
+                    <button onClick={() => copyHelper(publicUrl, "Offentlig inbjudningslänk kopierad!")} className="flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-indigo-700 dark:text-indigo-300 px-5 py-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 font-bold text-sm shadow-sm transition-all whitespace-nowrap">
+                      <Copy size={16} /> Kopiera inbjudningslänk
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex gap-6 mt-8">
@@ -778,12 +830,11 @@
                 {activeTab === 'list' && (
                   <div className="fade-in">
                     
-                    {/* Header för Att-göra lista inkl Sök, Kopiera och Utskrift (Punkt 2, 3 och 4) */}
+                    {/* Header för Att-göra lista inkl Sök, Kopiera och Utskrift */}
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 print:hidden">
                       <h3 className="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100">Kommande samtal</h3>
                       
                       <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto search-container">
-                        {/* Sök/Filter (Punkt 3) */}
                         <div className="relative w-full sm:w-64">
                           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
                           <input 
@@ -795,11 +846,9 @@
                           />
                         </div>
                         <div className="flex gap-2 w-full sm:w-auto">
-                          {/* Kopiera e-post (Punkt 2) */}
                           <button onClick={handleCopyAllEmails} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm font-bold text-sm whitespace-nowrap">
                             <Mail size={16} /> Kopiera E-post
                           </button>
-                          {/* Skriv ut (Punkt 4) */}
                           <button onClick={() => window.print()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 px-4 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm font-bold text-sm whitespace-nowrap">
                             <Printer size={16} /> Skriv ut
                           </button>
@@ -813,7 +862,7 @@
                       </p>
                     ) : (
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
+                        <table className="w-full text-left border-collapse min-w-[700px]">
                           <thead>
                             <tr className="border-b-2 border-slate-100 dark:border-slate-700">
                               <th className="py-4 px-4 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Tid</th>
@@ -826,30 +875,64 @@
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                             {filteredBookedSlots.map((slot) => (
-                              <tr key={slot.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors group">
-                                <td className="py-4 px-4 font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">{slot.time}</td>
-                                <td className="py-4 px-4 text-slate-700 dark:text-slate-300 font-medium">{slot.childName}</td>
-                                <td className="py-4 px-4 text-slate-600 dark:text-slate-400">{slot.bookerName}</td>
-                                <td className="py-4 px-4 text-slate-500 dark:text-slate-400 text-sm hidden md:table-cell">{slot.parentEmail || '-'}</td>
-                                <td className="py-4 px-4 text-center">
-                                  {slot.meetingFormat === 'Digitalt (Länk)' ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50 whitespace-nowrap">
-                                      <Video size={14} /> Digitalt
-                                    </span>
-                                  ) : slot.meetingFormat === 'Fysiskt på plats' ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs font-bold border border-violet-100 dark:border-violet-800/50 whitespace-nowrap">
-                                      <MapPin size={14} /> På plats
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-300 dark:text-slate-600 text-xs font-bold">Ej valt</span>
-                                  )}
-                                </td>
-                                <td className="py-4 px-4 print:hidden flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button onClick={() => handleMarkCompleted(slot)} className="p-2 rounded-xl text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all" title="Markera som avklarat"><Check size={16} strokeWidth={3} /></button>
-                                  <button onClick={() => slot.parentEmail ? triggerToast(`Påminnelse skickad till ${slot.parentEmail}`) : triggerToast("Ingen e-post", "error")} disabled={!slot.parentEmail} className={`p-2 rounded-xl transition-all ${slot.parentEmail ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40' : 'text-slate-300 dark:text-slate-600 bg-slate-50 dark:bg-slate-800'}`} title="Skicka påminnelse"><Send size={16} /></button>
-                                  <button onClick={() => handleTeacherCancel(slot)} className="p-2 rounded-xl text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all" title="Avboka tiden"><Trash2 size={16} /></button>
-                                </td>
-                              </tr>
+                              editingSlotId === slot.id ? (
+                                /* --- REDIGERINGS-LÄGE (Punkt 3) --- */
+                                <tr key={`edit-${slot.id}`} className="bg-indigo-50/50 dark:bg-indigo-900/20">
+                                  <td className="py-3 px-3 font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">{slot.time}</td>
+                                  <td className="py-3 px-2">
+                                    <input className="w-full p-2.5 border border-indigo-200 dark:border-indigo-700 rounded-lg text-sm bg-white dark:bg-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500" value={editData.childName} onChange={e => setEditData({...editData, childName: e.target.value})} placeholder="Barnets namn"/>
+                                  </td>
+                                  <td className="py-3 px-2">
+                                    <input className="w-full p-2.5 border border-indigo-200 dark:border-indigo-700 rounded-lg text-sm bg-white dark:bg-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500" value={editData.bookerName} onChange={e => setEditData({...editData, bookerName: e.target.value})} placeholder="Förälders namn"/>
+                                  </td>
+                                  <td className="py-3 px-2 hidden md:table-cell">
+                                    <input className="w-full p-2.5 border border-indigo-200 dark:border-indigo-700 rounded-lg text-sm bg-white dark:bg-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500" value={editData.parentEmail} onChange={e => setEditData({...editData, parentEmail: e.target.value})} placeholder="E-post"/>
+                                  </td>
+                                  <td className="py-3 px-2">
+                                    <select className="w-full p-2.5 border border-indigo-200 dark:border-indigo-700 rounded-lg text-sm bg-white dark:bg-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500" value={editData.meetingFormat} onChange={e => setEditData({...editData, meetingFormat: e.target.value})}>
+                                      <option value="Digitalt (Länk)">Digitalt</option>
+                                      <option value="Fysiskt på plats">På plats</option>
+                                      <option value="">Ej valt</option>
+                                    </select>
+                                  </td>
+                                  <td className="py-3 px-3 flex justify-end gap-2">
+                                    <button onClick={() => saveEditing(slot.id)} className="p-2.5 rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 transition-all shadow-md" title="Spara"><Save size={16} /></button>
+                                    <button onClick={() => setEditingSlotId(null)} className="p-2.5 rounded-xl text-slate-500 bg-white border border-slate-200 hover:bg-slate-50 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-600 transition-all shadow-sm" title="Avbryt"><XCircle size={16} /></button>
+                                  </td>
+                                </tr>
+                              ) : (
+                                /* --- VISNINGS-LÄGE --- */
+                                <tr key={slot.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors group">
+                                  <td className="py-4 px-4 font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                                    {slot.time}
+                                    {isTimePast(slot.time) && (
+                                      <span className="block w-fit mt-1 text-[10px] bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold">Passerad</span>
+                                    )}
+                                  </td>
+                                  <td className="py-4 px-4 text-slate-700 dark:text-slate-300 font-medium">{slot.childName}</td>
+                                  <td className="py-4 px-4 text-slate-600 dark:text-slate-400">{slot.bookerName}</td>
+                                  <td className="py-4 px-4 text-slate-500 dark:text-slate-400 text-sm hidden md:table-cell break-all">{slot.parentEmail || '-'}</td>
+                                  <td className="py-4 px-4 text-center">
+                                    {slot.meetingFormat === 'Digitalt (Länk)' ? (
+                                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold border border-indigo-100 dark:border-indigo-800/50 whitespace-nowrap">
+                                        <Video size={14} /> Digitalt
+                                      </span>
+                                    ) : slot.meetingFormat === 'Fysiskt på plats' ? (
+                                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs font-bold border border-violet-100 dark:border-violet-800/50 whitespace-nowrap">
+                                        <MapPin size={14} /> På plats
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300 dark:text-slate-600 text-xs font-bold">Ej valt</span>
+                                    )}
+                                  </td>
+                                  <td className="py-4 px-4 print:hidden flex justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => startEditing(slot)} className="p-2 rounded-xl text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all" title="Redigera detaljer"><Edit2 size={16} /></button>
+                                    <button onClick={() => handleMarkCompleted(slot)} className="p-2 rounded-xl text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all" title="Markera som avklarat"><Check size={16} strokeWidth={3} /></button>
+                                    <button onClick={() => slot.parentEmail ? triggerToast(`Påminnelse skickad till ${slot.parentEmail}`) : triggerToast("Ingen e-post", "error")} disabled={!slot.parentEmail} className={`p-2 rounded-xl transition-all ${slot.parentEmail ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40' : 'text-slate-300 dark:text-slate-600 bg-slate-50 dark:bg-slate-800'}`} title="Skicka påminnelse"><Send size={16} /></button>
+                                    <button onClick={() => handleTeacherCancel(slot)} className="p-2 rounded-xl text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all" title="Avboka tiden"><Trash2 size={16} /></button>
+                                  </td>
+                                </tr>
+                              )
                             ))}
                           </tbody>
                         </table>
@@ -874,13 +957,13 @@
 
                     <div className="space-y-3">
                       {slots.map(slot => (
-                        <div key={slot.id} className="flex justify-between items-center p-4 border border-slate-100 dark:border-slate-700 rounded-2xl bg-white dark:bg-slate-800 hover:border-slate-200 dark:hover:border-slate-600 transition-all shadow-sm">
+                        <div key={slot.id} className={`flex justify-between items-center p-4 border rounded-2xl transition-all shadow-sm ${isTimePast(slot.time) ? 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-60' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-slate-200 dark:hover:border-slate-600'}`}>
                           <div className="flex items-center gap-4">
                             <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded-lg text-slate-400 dark:text-slate-500"><Clock size={18} /></div>
-                            <span className="font-bold text-slate-800 dark:text-slate-100 text-lg tracking-tight">{slot.time}</span>
+                            <span className={`font-bold text-lg tracking-tight ${isTimePast(slot.time) ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>{slot.time}</span>
                             {slot.status === 'booked' && <span className="bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs px-3 py-1 rounded-lg font-bold border border-emerald-100 dark:border-emerald-800/50 ml-2">Bokad av {slot.childName}</span>}
-                            {/* NY BADGE: Visar om mötet är avklarat */}
                             {slot.status === 'completed' && <span className="bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 text-xs px-3 py-1 rounded-lg font-bold border border-slate-200 dark:border-slate-700 ml-2">Avklarat ({slot.childName})</span>}
+                            {isTimePast(slot.time) && <span className="bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 text-xs px-3 py-1 rounded-lg font-bold border border-rose-100 dark:border-rose-900/50 ml-2">Passerad</span>}
                           </div>
                           <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'samtala_slots', slot.id))} className="text-rose-400 hover:text-rose-600 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-900/20 p-2 rounded-lg transition-all" title="Radera tiden permanent"><Trash2 size={18} /></button>
                         </div>
@@ -889,12 +972,31 @@
                   </div>
                 )}
               </div>
+
+              {/* MODAL FÖR E-POSTMALL (Punkt 2) */}
+              {showTemplateModal && (
+                <div className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
+                  <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-2xl w-full max-w-sm slide-in-from-bottom-4">
+                    <h3 className="font-bold text-xl mb-2 text-slate-800 dark:text-slate-100">Välj e-postmall</h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">En färdig text med din länk kopieras direkt till urklippet.</p>
+                    <div className="space-y-3">
+                      <button onClick={() => handleCopyTemplate('vårterminen')} className="w-full p-4 flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-xl font-bold transition-colors">
+                        Vårtermin (VT) <Copy size={16} />
+                      </button>
+                      <button onClick={() => handleCopyTemplate('höstterminen')} className="w-full p-4 flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-xl font-bold transition-colors">
+                        Hösttermin (HT) <Copy size={16} />
+                      </button>
+                      <button onClick={() => setShowTemplateModal(false)} className="w-full p-4 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl mt-2 font-semibold transition-colors">Avbryt</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           );
         }
 
         // ==========================================
-        // DELTAGAR-VY: BOKA TID
+        // DELTAGAR-VY: BOKA TID (Uppdaterad för Punkt 1)
         // ==========================================
         function EventPublicView({ event, slots, db, appId, copyHelper }) {
           const [selectedSlots, setSelectedSlots] = useState([]);
@@ -907,7 +1009,10 @@
           const [justSharedLink, setJustSharedLink] = useState(null);
           const [receiptData, setReceiptData] = useState(null); 
 
-          const availableSlots = slots.filter(s => s.status === 'available').sort((a, b) => a.time.localeCompare(b.time));
+          // Punkt 1: Filtrera bort passerade tider för deltagare!
+          const availableSlots = slots
+            .filter(s => s.status === 'available' && !isTimePast(s.time))
+            .sort((a, b) => a.time.localeCompare(b.time));
 
           const groupedSlots = availableSlots.reduce((acc, slot) => {
             const [datePart, timePart] = slot.time.split(' kl ');
@@ -990,7 +1095,7 @@
 
               <div className="p-6 md:p-8">
                 {availableSlots.length === 0 ? (
-                  <div className="text-center py-12 text-slate-400 dark:text-slate-500 font-medium bg-slate-50 dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">Inga lediga tider kvar.</div>
+                  <div className="text-center py-12 text-slate-400 dark:text-slate-500 font-medium bg-slate-50 dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">Inga lediga tider framåt i tiden kvar.</div>
                 ) : (
                   <>
                     {!isBookingMode && !isSharingMode && (
