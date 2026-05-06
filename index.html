@@ -137,19 +137,18 @@
           } catch (error) { console.error("Kunde inte generera kalenderfil", error); }
         };
 
-        // --- HJÄLPFUNKTION: KONTROLLERA OM TID PASSERAT (Punkt 1) ---
+        // --- HJÄLPFUNKTION: KONTROLLERA OM TID PASSERAT ---
         const isTimePast = (timeString) => {
           if(!timeString) return false;
           try {
-            // Förväntat format: "2026-04-08 kl 08:30 - 08:55"
             const parts = timeString.split(' kl ');
             if(parts.length !== 2) return false;
             const datePart = parts[0];
-            const startTimePart = parts[1].split(' - ')[0]; // "08:30"
+            const startTimePart = parts[1].split(' - ')[0]; 
             const slotDate = new Date(`${datePart}T${startTimePart}:00`);
             
             if(isNaN(slotDate.getTime())) return false;
-            return slotDate < new Date(); // Returnerar true om slotDate är i det förflutna
+            return slotDate < new Date(); 
           } catch (e) { return false; }
         };
 
@@ -162,12 +161,31 @@
           const [isLoadingProfile, setIsLoadingProfile] = useState(true);
           const [currentHash, setCurrentHash] = useState(window.location.hash || '#/');
           
-          const [isDarkMode, setIsDarkMode] = useState(false);
+          // --- LOCAL STORAGE & DARK MODE ---
+          const [isDarkMode, setIsDarkMode] = useState(() => {
+            try {
+              const savedMode = window.localStorage.getItem('samtala_theme');
+              if (savedMode !== null) return savedMode === 'dark';
+              return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            } catch (error) {
+              return false;
+            }
+          });
           const [toast, setToast] = useState(null);
 
+          // Hantera Mörkt Läge & spara till LocalStorage
           useEffect(() => {
-            if (isDarkMode) document.documentElement.classList.add('dark');
-            else document.documentElement.classList.remove('dark');
+            try {
+              if (isDarkMode) {
+                document.documentElement.classList.add('dark');
+                window.localStorage.setItem('samtala_theme', 'dark');
+              } else {
+                document.documentElement.classList.remove('dark');
+                window.localStorage.setItem('samtala_theme', 'light');
+              }
+            } catch (error) {
+              console.error("Local storage error:", error);
+            }
           }, [isDarkMode]);
 
           useEffect(() => {
@@ -659,9 +677,9 @@
         function HostEventDetails({ event, slots, db, appId, copyHelper, triggerToast }) {
           const [activeTab, setActiveTab] = useState('list'); 
           const [searchQuery, setSearchQuery] = useState('');
-          const [showTemplateModal, setShowTemplateModal] = useState(false); // Modal för e-postmallar (Punkt 2)
+          const [showTemplateModal, setShowTemplateModal] = useState(false); 
           
-          // Edit State (Punkt 3)
+          // Edit State
           const [editingSlotId, setEditingSlotId] = useState(null);
           const [editData, setEditData] = useState({});
 
@@ -685,7 +703,7 @@
             (slot.parentEmail || '').toLowerCase().includes(searchQuery.toLowerCase())
           );
 
-          // E-postmallar Funktion (Punkt 2)
+          // E-postmallar Funktion 
           const handleCopyTemplate = (terminText) => {
             const templateText = `Hej vårdnadshavare,\n\nNu är det dags för ${terminText}s utvecklingssamtal för att följa upp elevens studier och mående. Samtalen kommer att påbörjas [datum/vecka].\n\nFör bokning av tid använder vi bokningstjänsten Samtala. Det är principen först till kvarn som gäller för de tider som finns tillgängliga.\n\nKlicka på länken nedan för att boka din tid:\nLänk: ${publicUrl}\n\nVIKTIGT VID BOKNING:\nNär du valt en tid kommer du till ett kort formulär. För att jag ska kunna förbereda samtalen på bästa sätt är det obligatoriskt att ni fyller i:\n• VH:S NAMN (Fullständigt för- och efternamn)\n• BARNETS NAMN (Fullständigt för- och efternamn)\n• MÖTESFORM (Klicka i om ni vill ses FYSISKT på skolan eller DIGITALT)\n\nVid digitalt möte skickar jag ut en möteslänk via mejl i god tid innan vårt samtal.\n\nJag ser fram emot att träffas och prata om ert barns utveckling!\n\nVänliga hälsningar,\n${event.hostName}`;
             copyHelper(templateText, `E-postmall för ${terminText} kopierad!`);
@@ -701,7 +719,7 @@
             }
           };
 
-          // Redigera Funktioner (Punkt 3)
+          // Redigera Funktioner 
           const startEditing = (slot) => {
             setEditingSlotId(slot.id);
             setEditData({
@@ -974,7 +992,7 @@
                 )}
               </div>
 
-              {/* MODAL FÖR E-POSTMALL (Punkt 2) */}
+              {/* MODAL FÖR E-POSTMALL */}
               {showTemplateModal && (
                 <div className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
                   <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-2xl w-full max-w-sm slide-in-from-bottom-4">
@@ -997,7 +1015,7 @@
         }
 
         // ==========================================
-        // DELTAGAR-VY: BOKA TID (Uppdaterad för Punkt 1)
+        // DELTAGAR-VY: BOKA TID
         // ==========================================
         function EventPublicView({ event, slots, db, appId, copyHelper }) {
           const [selectedSlots, setSelectedSlots] = useState([]);
